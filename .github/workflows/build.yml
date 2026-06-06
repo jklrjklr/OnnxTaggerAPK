@@ -2,7 +2,7 @@ name: Build APK
 
 on:
   push:
-    branches: [ "claude/android-onnx-tagger-plan-VVJYW", "main" ]
+    branches: [ "claude/android-onnx-tagger-plan-VVJYW", "claude/onnxtagger-android-impl-BL25S", "main" ]
   workflow_dispatch:
 
 jobs:
