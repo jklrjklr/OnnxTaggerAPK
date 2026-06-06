@@ -12,6 +12,10 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -23,9 +27,8 @@ import com.example.onnxtagger.data.model.BatchImageItem
 import com.example.onnxtagger.data.model.BatchItemStatus
 import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.rememberReorderableLazyListState
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun ImagePickerArea(
     images: List<BatchImageItem>,
@@ -37,12 +40,14 @@ fun ImagePickerArea(
     modifier: Modifier = Modifier,
 ) {
     val haptic = LocalHapticFeedback.current
+    val lazyListState = rememberLazyListState()
     val reorderState = rememberReorderableLazyListState(
+        lazyListState = lazyListState,
         onMove = { from, to -> onReorder(from.index - 1, to.index - 1) } // offset for "add" tile
     )
 
     LazyRow(
-        state = reorderState.listState,
+        state = lazyListState,
         modifier = modifier.padding(horizontal = 8.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically,

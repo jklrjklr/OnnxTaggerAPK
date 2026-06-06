@@ -1,6 +1,7 @@
 package com.example.onnxtagger.inference
 
 import ai.onnxruntime.OnnxTensor
+import ai.onnxruntime.OnnxTensorLike
 import ai.onnxruntime.OrtEnvironment
 import android.content.Context
 import android.net.Uri
@@ -66,9 +67,9 @@ class CaptionInferenceEngine(
                 LongBuffer.wrap(LongArray(ids.size) { 1L }),
                 longArrayOf(1, ids.size.toLong())
             )
-            val decoderInputs = mapOf(
+            val decoderInputs: Map<String, OnnxTensorLike> = mapOf(
                 "input_ids" to inputIdsTensor,
-                "encoder_hidden_states" to hiddenStatesTensor,
+                "encoder_hidden_states" to hiddenStatesTensor as OnnxTensorLike,
                 "attention_mask" to attMask,
             )
             val decoderOut = withContext(InferenceDispatchers.inference) {
