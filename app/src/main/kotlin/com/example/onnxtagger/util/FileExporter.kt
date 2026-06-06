@@ -1,59 +1,56 @@
 package com.example.onnxtagger.util
 
-import android.content.ContentValues
 import android.content.Context
 import android.net.Uri
-import android.os.Build
-import android.provider.MediaStore
+import android.provider.DocumentsContract
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 object FileExporter {
 
-    suspend fun export(context: Context, content: String, suggestedName: String): Result<Uri> =
-        withContext(Dispatchers.IO) {
-            runCatching {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    val values = ContentValues().apply {
-                        put(MediaStore.Downloads.DISPLAY_NAME, suggestedName)
-                        put(MediaStore.Downloads.MIME_TYPE, "text/plain")
-                    }
-                    val uri = context.contentResolver.insert(
-                        MediaStore.Downloads.EXTERNAL_CONTENT_URI, values
-                    ) ?: error("MediaStore insert returned null")
-                    context.contentResolver.openOutputStream(uri)!!.use {
-                        it.write(content.toByteArray(Charsets.UTF_8))
-                    }
-                    uri
-                } else {
-                    throw UnsupportedOperationException("API < 29: use SAF CreateDocument")
-                }
-            }
-        }
-
-    // Saves one .txt file per image to Downloads, named after the image (without extension).
-    // Returns count of files written. Requires API 29+.
+    // Saves one .txt per image into the given tree URI directory.
+    // Overwrites any existing .txt with the same base name.
+    // Returns count of files written.
     suspend fun exportPerImage(
         context: Context,
+        treeDirUri: Uri,
         items: List<Pair<String, String>>, // displayName to content
     ): Result<Int> = withContext(Dispatchers.IO) {
         runCatching {
-            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
-                error("Per-image save requires Android 10 (API 29) or higher")
-            }
+            val resolver = context.contentResolver
+            val treeDocId = DocumentsContract.getTreeDocumentId(treeDirUri)
+            val treeDocUri = DocumentsContract.buildDocumentUriUsingTree(treeDirUri, treeDocId)
+            val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(treeDirUri, treeDocId)
+
             var count = 0
             for ((displayName, content) in items) {
                 if (content.isBlank()) continue
                 val base = displayName.substringBeforeLast('.').substringAfterLast('/')
                     .ifBlank { displayName }
-                val values = ContentValues().apply {
-                    put(MediaStore.Downloads.DISPLAY_NAME, "$base.txt")
-                    put(MediaStore.Downloads.MIME_TYPE, "text/plain")
+                val txtName = "$base.txt"
+
+                // Delete existing file with same name to overwrite cleanly
+                resolver.query(
+                    childrenUri,
+                    arrayOf(
+                        DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+                        DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+                    ),
+                    "${DocumentsContract.Document.COLUMN_DISPLAY_NAME} = ?",
+                    arrayOf(txtName),
+                    null,
+                )?.use { cursor ->
+                    if (cursor.moveToFirst()) {
+                        val existingDocId = cursor.getString(0)
+                        val existingUri = DocumentsContract.buildDocumentUriUsingTree(treeDirUri, existingDocId)
+                        runCatching { DocumentsContract.deleteDocument(resolver, existingUri) }
+                    }
                 }
-                val uri = context.contentResolver.insert(
-                    MediaStore.Downloads.EXTERNAL_CONTENT_URI, values
+
+                val newUri = DocumentsContract.createDocument(
+                    resolver, treeDocUri, "text/plain", txtName
                 ) ?: continue
-                context.contentResolver.openOutputStream(uri)!!.use {
+                resolver.openOutputStream(newUri)!!.use {
                     it.write(content.toByteArray(Charsets.UTF_8))
                 }
                 count++
@@ -62,4 +59,3 @@ object FileExporter {
         }
     }
 }
-

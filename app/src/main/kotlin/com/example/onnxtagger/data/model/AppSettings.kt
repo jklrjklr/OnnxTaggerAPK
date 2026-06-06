@@ -12,6 +12,7 @@ data class AppSettings(
     val batchItemSeparator: String = "\n",
     val maxTokens: Int = 200,
     val activeProfileId: String = "",
+    val saveDirUriString: String = "",
     val tagModelConfig: ModelConfig = ModelConfig(mode = InferenceMode.TAG),
     val captionModelConfig: ModelConfig = ModelConfig(mode = InferenceMode.CAPTION),
 )

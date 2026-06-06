@@ -2,7 +2,6 @@ package com.example.onnxtagger.ui
 
 import android.app.Application
 import android.net.Uri
-import android.os.Build
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.onnxtagger.OnnxTaggerApp
@@ -12,7 +11,11 @@ import com.example.onnxtagger.inference.InferenceDispatchers
 import com.example.onnxtagger.util.FileExporter
 import com.example.onnxtagger.util.OutputFormatter
 import com.example.onnxtagger.util.SafUtils
-import kotlinx.coroutines.*
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.*
 import java.util.UUID
@@ -46,9 +49,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _settings = MutableStateFlow(AppSettings())
     val settings: StateFlow<AppSettings> = _settings.asStateFlow()
 
-    // FIX-9: Channel.CONFLATED survives rotation without replaying stale events
-    private val _saveDocumentEvent = Channel<String>(Channel.CONFLATED)
-    val saveDocumentEvent: Flow<String> = _saveDocumentEvent.receiveAsFlow()
+    private val _pickSaveDirEvent = Channel<Unit>(Channel.CONFLATED)
+    val pickSaveDirEvent: Flow<Unit> = _pickSaveDirEvent.receiveAsFlow()
 
     private var batchJob: Job? = null
     private var currentSessionId: String = UUID.randomUUID().toString()
@@ -242,50 +244,30 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun onClearAll() = _uiState.update { it.copy(selectedImages = emptyList()) }
 
     fun onSavePerImageTapped() {
+        val dirUriString = _settings.value.saveDirUriString
+        if (dirUriString.isBlank() || !SafUtils.isTreeUriWritable(getApplication(), Uri.parse(dirUriString))) {
+            viewModelScope.launch { _pickSaveDirEvent.send(Unit) }
+            return
+        }
+        doSavePerImage(Uri.parse(dirUriString))
+    }
+
+    fun onSaveDirPicked(uri: Uri) {
+        SafUtils.persistTreeUri(getApplication(), uri)
+        onSettingsChanged(_settings.value.copy(saveDirUriString = uri.toString()))
+        doSavePerImage(uri)
+    }
+
+    private fun doSavePerImage(dirUri: Uri) {
         val settings = _settings.value
         val items = _uiState.value.selectedImages
             .filter { it.status == BatchItemStatus.DONE }
             .map { item -> item.displayName to resultToText(item.result, settings) }
         if (items.isEmpty()) return
         viewModelScope.launch {
-            val result = FileExporter.exportPerImage(getApplication(), items)
-            val msg = result.fold(
-                { "$it file(s) saved to Downloads" },
-                { "Save failed: ${it.message}" },
-            )
+            val result = FileExporter.exportPerImage(getApplication(), dirUri, items)
+            val msg = result.fold({ "$it file(s) saved" }, { "Save failed: ${it.message}" })
             _uiState.update { it.copy(saveResultSnackbar = msg) }
-        }
-    }
-
-    fun onSaveTapped() {
-        val content = _uiState.value.outputText
-        if (content.isBlank()) return
-        viewModelScope.launch {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                val result = FileExporter.export(
-                    getApplication(), content, "batch_tags_${System.currentTimeMillis()}.txt"
-                )
-                val msg = result.fold({ "Saved to Downloads" }, { "Save failed: ${it.message}" })
-                _uiState.update { it.copy(saveResultSnackbar = msg) }
-            } else {
-                // FIX-9: Channel.CONFLATED fires exactly once, survives rotation
-                _saveDocumentEvent.send(content)
-            }
-        }
-    }
-
-    fun onSaveDocumentResult(uri: Uri?) {
-        if (uri == null) return
-        val content = _uiState.value.outputText
-        viewModelScope.launch(Dispatchers.IO) {
-            runCatching {
-                getApplication<Application>().contentResolver.openOutputStream(uri)!!.use {
-                    it.write(content.toByteArray(Charsets.UTF_8))
-                }
-                _uiState.update { it.copy(saveResultSnackbar = "Saved") }
-            }.onFailure {
-                _uiState.update { s -> s.copy(saveResultSnackbar = "Save failed: ${it.message}") }
-            }
         }
     }
 

@@ -28,15 +28,12 @@ fun MainScreen(vm: MainViewModel = viewModel()) {
         ActivityResultContracts.OpenMultipleDocuments()
     ) { uris -> if (uris.isNotEmpty()) vm.onImagesSelected(uris) }
 
-    val createDocLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.CreateDocument("text/plain")
-    ) { uri -> vm.onSaveDocumentResult(uri) }
+    val saveDirLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocumentTree()
+    ) { uri -> if (uri != null) vm.onSaveDirPicked(uri) }
 
-    // FIX-9: collect save event with LaunchedEffect so it doesn't replay on recomposition
     LaunchedEffect(Unit) {
-        vm.saveDocumentEvent.collect { _ ->
-            createDocLauncher.launch("batch_tags_${System.currentTimeMillis()}.txt")
-        }
+        vm.pickSaveDirEvent.collect { saveDirLauncher.launch(null) }
     }
 
     Scaffold(
@@ -118,7 +115,6 @@ fun MainScreen(vm: MainViewModel = viewModel()) {
                 onRunClicked = vm::onRunClicked,
                 onCancelClicked = vm::onCancelBatch,
                 onCopyClicked = { /* copy handled by SelectionContainer or clipboard */ },
-                onSaveClicked = vm::onSaveTapped,
                 onSavePerImageClicked = vm::onSavePerImageTapped,
                 hasDoneImages = uiState.selectedImages.any { it.status == BatchItemStatus.DONE },
             )

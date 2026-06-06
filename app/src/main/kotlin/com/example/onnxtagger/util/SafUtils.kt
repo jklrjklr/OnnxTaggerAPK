@@ -26,6 +26,24 @@ object SafUtils {
         }
     }
 
+    fun persistTreeUri(context: Context, uri: Uri): Boolean {
+        if (uri.scheme != "content") return false
+        runCatching {
+            context.contentResolver.takePersistableUriPermission(
+                uri,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+            )
+        }
+        return true
+    }
+
+    fun isTreeUriWritable(context: Context, uri: Uri): Boolean {
+        if (uri.scheme != "content") return false
+        return context.contentResolver.persistedUriPermissions.any {
+            it.uri == uri && it.isWritePermission
+        }
+    }
+
     fun validateUris(context: Context, uriStrings: List<String>): Map<String, Boolean> =
         uriStrings.associateWith { uriString ->
             if (uriString.isBlank()) false

@@ -21,7 +21,6 @@ fun OutputArea(
     onRunClicked: () -> Unit,
     onCancelClicked: () -> Unit,
     onCopyClicked: () -> Unit,
-    onSaveClicked: () -> Unit,
     onSavePerImageClicked: () -> Unit,
     hasDoneImages: Boolean,
     modifier: Modifier = Modifier,
@@ -87,11 +86,6 @@ fun OutputArea(
                         Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(Modifier.width(4.dp))
                         Text("Copy")
-                    }
-                    OutlinedButton(onClick = onSaveClicked, modifier = Modifier.weight(1f)) {
-                        Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(Modifier.width(4.dp))
-                        Text("Save")
                     }
                 }
                 if (hasDoneImages) {
