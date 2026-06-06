@@ -10,7 +10,6 @@ import com.example.onnxtagger.data.repository.BatchSession
 import com.example.onnxtagger.inference.InferenceDispatchers
 import com.example.onnxtagger.util.FileExporter
 import com.example.onnxtagger.util.OutputFormatter
-import com.example.onnxtagger.util.SafUtils
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.channels.Channel
@@ -244,17 +243,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun onClearAll() = _uiState.update { it.copy(selectedImages = emptyList()) }
 
     fun onSavePerImageTapped() {
-        val dirUriString = _settings.value.saveDirUriString
-        if (dirUriString.isBlank() || !SafUtils.isTreeUriWritable(getApplication(), Uri.parse(dirUriString))) {
-            viewModelScope.launch { _pickSaveDirEvent.send(Unit) }
-            return
-        }
-        doSavePerImage(Uri.parse(dirUriString))
+        viewModelScope.launch { _pickSaveDirEvent.send(Unit) }
     }
 
     fun onSaveDirPicked(uri: Uri) {
-        SafUtils.persistTreeUri(getApplication(), uri)
-        onSettingsChanged(_settings.value.copy(saveDirUriString = uri.toString()))
         doSavePerImage(uri)
     }
 
