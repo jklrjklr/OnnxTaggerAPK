@@ -69,4 +69,5 @@ dependencies {
     ksp(libs.room.compiler)
     implementation(libs.serialization.json)
     implementation(libs.reorderable)
+    testImplementation(libs.junit)
 }
