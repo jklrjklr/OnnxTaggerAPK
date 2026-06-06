@@ -84,8 +84,21 @@ class OnnxSessionManager(private val context: Context) {
                 addNnapi()
             }
         }
-        val bytes = context.contentResolver.openInputStream(uri)!!.use { it.readBytes() }
-        return env.createSession(bytes, opts)
+        // Stream-copy to cache file so ONNX Runtime can mmap it instead of
+        // loading the entire model (~360 MB) into the Java heap via readBytes().
+        val path = cachedModelPath(uri)
+        return env.createSession(path, opts)
+    }
+
+    private fun cachedModelPath(uri: Uri): String {
+        val hash = uri.toString().hashCode().toUInt().toString(16)
+        val file = java.io.File(context.cacheDir, "model_$hash.onnx")
+        if (!file.exists()) {
+            context.contentResolver.openInputStream(uri)!!.use { input ->
+                file.outputStream().buffered().use { input.copyTo(it) }
+            }
+        }
+        return file.absolutePath
     }
 
     // FIX-2: warm-up tensor shape respects inputLayout (NHWC vs NCHW).
