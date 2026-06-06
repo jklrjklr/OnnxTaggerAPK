@@ -241,6 +241,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun onClearAll() = _uiState.update { it.copy(selectedImages = emptyList()) }
 
+    fun onSavePerImageTapped() {
+        val settings = _settings.value
+        val items = _uiState.value.selectedImages
+            .filter { it.status == BatchItemStatus.DONE }
+            .map { item -> item.displayName to resultToText(item.result, settings) }
+        if (items.isEmpty()) return
+        viewModelScope.launch {
+            val result = FileExporter.exportPerImage(getApplication(), items)
+            val msg = result.fold(
+                { "$it file(s) saved to Downloads" },
+                { "Save failed: ${it.message}" },
+            )
+            _uiState.update { it.copy(saveResultSnackbar = msg) }
+        }
+    }
+
     fun onSaveTapped() {
         val content = _uiState.value.outputText
         if (content.isBlank()) return

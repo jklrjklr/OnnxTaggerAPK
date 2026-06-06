@@ -13,6 +13,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.onnxtagger.data.model.ActOnExisting
+import com.example.onnxtagger.data.model.BatchItemStatus
 import com.example.onnxtagger.data.model.InferenceMode
 import com.example.onnxtagger.ui.MainViewModel
 
@@ -118,6 +119,8 @@ fun MainScreen(vm: MainViewModel = viewModel()) {
                 onCancelClicked = vm::onCancelBatch,
                 onCopyClicked = { /* copy handled by SelectionContainer or clipboard */ },
                 onSaveClicked = vm::onSaveTapped,
+                onSavePerImageClicked = vm::onSavePerImageTapped,
+                hasDoneImages = uiState.selectedImages.any { it.status == BatchItemStatus.DONE },
             )
         }
 

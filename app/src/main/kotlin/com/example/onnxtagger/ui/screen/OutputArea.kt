@@ -22,6 +22,8 @@ fun OutputArea(
     onCancelClicked: () -> Unit,
     onCopyClicked: () -> Unit,
     onSaveClicked: () -> Unit,
+    onSavePerImageClicked: () -> Unit,
+    hasDoneImages: Boolean,
     modifier: Modifier = Modifier,
 ) {
     Column(modifier = modifier.padding(8.dp)) {
@@ -75,20 +77,29 @@ fun OutputArea(
             placeholder = { Text("Results will appear here…") },
         )
 
-        if (outputText.isNotBlank()) {
+        if (outputText.isNotBlank() || hasDoneImages) {
             Row(
                 modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                OutlinedButton(onClick = onCopyClicked, modifier = Modifier.weight(1f)) {
-                    Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(Modifier.width(4.dp))
-                    Text("Copy")
+                if (outputText.isNotBlank()) {
+                    OutlinedButton(onClick = onCopyClicked, modifier = Modifier.weight(1f)) {
+                        Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("Copy")
+                    }
+                    OutlinedButton(onClick = onSaveClicked, modifier = Modifier.weight(1f)) {
+                        Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("Save")
+                    }
                 }
-                OutlinedButton(onClick = onSaveClicked, modifier = Modifier.weight(1f)) {
-                    Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(Modifier.width(4.dp))
-                    Text("Save")
+                if (hasDoneImages) {
+                    OutlinedButton(onClick = onSavePerImageClicked, modifier = Modifier.weight(1f)) {
+                        Icon(Icons.Default.LibraryAddCheck, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("Save TXTs")
+                    }
                 }
             }
         }
