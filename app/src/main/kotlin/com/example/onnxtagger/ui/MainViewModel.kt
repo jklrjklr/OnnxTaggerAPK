@@ -9,23 +9,18 @@ import com.example.onnxtagger.data.model.*
 import com.example.onnxtagger.data.repository.BatchSession
 import com.example.onnxtagger.inference.InferenceDispatchers
 import com.example.onnxtagger.util.FileExporter
-import com.example.onnxtagger.util.OutputFormatter
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.flow.*
 import java.util.UUID
 
 data class MainUiState(
     val selectedImages: List<BatchImageItem> = emptyList(),
     val isRunning: Boolean = false,
     val batchProgress: BatchProgress? = null,
-    val outputText: String = "",
     val previewItem: BatchImageItem? = null,
-    val showIgnoreWarning: Boolean = false,
     val detectedSizeSnackbar: String? = null,
     val saveResultSnackbar: String? = null,
     val error: String? = null,
@@ -61,10 +56,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     init {
         viewModelScope.launch {
-            app.settingsRepository.settingsFlow.collect { s ->
-                _settings.value = s
-                recomputeIgnoreWarning()
-            }
+            app.settingsRepository.settingsFlow.collect { s -> _settings.value = s }
         }
         viewModelScope.launch {
             app.batchSessionRepository.recentFlow.collect { sessions ->
@@ -78,7 +70,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    // FIX-7: enforces MAX_QUEUE_SIZE, skipping excess rather than appending
     fun onImagesSelected(uris: List<Uri>) {
         val current = _uiState.value.selectedImages
         val available = MAX_QUEUE_SIZE - current.size
@@ -103,17 +94,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (images.isEmpty()) return
         val settings = _settings.value
         currentSessionId = UUID.randomUUID().toString()
-        _uiState.update { it.copy(isRunning = true, error = null, showIgnoreWarning = false) }
+        _uiState.update { it.copy(isRunning = true, error = null) }
 
         batchJob = viewModelScope.launch {
-            val existingBefore = _uiState.value.outputText
-            val perImageOutputs = mutableListOf<String>()
-
             images.forEachIndexed { i, item ->
-                if (item.status == BatchItemStatus.DONE) {
-                    perImageOutputs.add(resultToText(item.result, settings))
-                    return@forEachIndexed
-                }
+                if (item.status == BatchItemStatus.DONE) return@forEachIndexed
 
                 updateItemStatus(i, BatchItemStatus.PROCESSING)
                 _uiState.update { it.copy(batchProgress = BatchProgress(i + 1, images.size)) }
@@ -127,34 +112,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     InferenceMode.CAPTION ->
                         app.captionEngine.run(getApplication(), item.uri, settings, settings.captionModelConfig)
                 }
-
-                val itemText = resultToText(result, settings)
-                perImageOutputs.add(itemText)
-                updateItemResult(i, item, result)
+                updateItemResult(i, item, result, settings)
             }
-
-            val batchOutput = perImageOutputs.filter { it.isNotBlank() }.joinToString(settings.batchItemSeparator)
-            val finalOutput = OutputFormatter.apply(
-                newContent = batchOutput,
-                existingAnchor = existingBefore,
-                prepend = settings.prependText,
-                append = settings.appendText,
-                actOnExisting = settings.actOnExisting,
-                separator = settings.batchItemSeparator,
-            )
-            _uiState.update { it.copy(outputText = finalOutput, isRunning = false, batchProgress = null) }
-            recomputeIgnoreWarning()
+            _uiState.update { it.copy(isRunning = false, batchProgress = null) }
             persistQueueSnapshot(isComplete = true)
         }
     }
 
     fun onCancelBatch() {
         batchJob?.cancel()
-        viewModelScope.launch {
-            persistQueueSnapshot(isComplete = false)
-        }
+        viewModelScope.launch { persistQueueSnapshot(isComplete = false) }
         _uiState.update { it.copy(isRunning = false, batchProgress = null) }
-        recomputeIgnoreWarning()
     }
 
     fun onResumeBatch(session: BatchSession) {
@@ -162,6 +130,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         currentSessionId = session.id
         _uiState.update { it.copy(selectedImages = restored) }
         onRunClicked()
+    }
+
+    fun onTextChanged(index: Int, text: String) {
+        _uiState.update { state ->
+            val list = state.selectedImages.toMutableList()
+            if (index in list.indices) list[index] = list[index].copy(text = text)
+            state.copy(selectedImages = list)
+        }
+    }
+
+    fun onResetTapped() {
+        batchJob?.cancel()
+        _uiState.update { it.copy(selectedImages = emptyList(), isRunning = false, batchProgress = null) }
     }
 
     fun onTagModelPicked(modelUri: Uri, labelsUri: Uri) {
@@ -207,7 +188,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun onSettingsChanged(newSettings: AppSettings) {
         _settings.value = newSettings
         viewModelScope.launch { app.settingsRepository.save(newSettings) }
-        recomputeIgnoreWarning()
     }
 
     fun onReorderImages(from: Int, to: Int) {
@@ -225,20 +205,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _uiState.update { it.copy(selectedImages = list) }
     }
 
-    fun onToggleExpanded(index: Int) {
-        val list = _uiState.value.selectedImages.toMutableList()
-        if (index < 0 || index >= list.size) return
-        list[index] = list[index].copy(isExpanded = !list[index].isExpanded)
-        _uiState.update { it.copy(selectedImages = list) }
-    }
-
     fun onPreviewImage(item: BatchImageItem) = _uiState.update { it.copy(previewItem = item) }
     fun onDismissPreview() = _uiState.update { it.copy(previewItem = null) }
-
-    fun onOutputTextChanged(text: String) {
-        _uiState.update { it.copy(outputText = text) }
-        recomputeIgnoreWarning()
-    }
 
     fun onClearAll() = _uiState.update { it.copy(selectedImages = emptyList()) }
 
@@ -251,10 +219,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun doSavePerImage(dirUri: Uri) {
-        val settings = _settings.value
         val items = _uiState.value.selectedImages
-            .filter { it.status == BatchItemStatus.DONE }
-            .map { item -> item.displayName to resultToText(item.result, settings) }
+            .filter { it.text.isNotBlank() }
+            .map { item -> item.displayName to item.text }
         if (items.isEmpty()) return
         viewModelScope.launch {
             val result = FileExporter.exportPerImage(getApplication(), dirUri, items)
@@ -307,7 +274,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun toggleModelManager() = _uiState.update { it.copy(showModelManager = !it.showModelManager) }
     fun toggleProfileManager() = _uiState.update { it.copy(showProfileManager = !it.showProfileManager) }
 
-    // FIX-3: cancel then join before closing dispatcher to avoid RejectedExecutionException
     override fun onCleared() {
         viewModelScope.launch {
             batchJob?.cancelAndJoin()
@@ -315,13 +281,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
         app.sessionManager.closeAll()
         super.onCleared()
-    }
-
-    private fun recomputeIgnoreWarning() {
-        _uiState.update { it.copy(
-            showIgnoreWarning = _settings.value.actOnExisting == ActOnExisting.IGNORE
-                && _uiState.value.outputText.isNotBlank()
-        )}
     }
 
     private suspend fun getCachedLabels(config: ModelConfig): List<String> {
@@ -347,13 +306,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private fun updateItemResult(index: Int, original: BatchImageItem, result: InferenceResult) {
+    private fun updateItemResult(index: Int, original: BatchImageItem, result: InferenceResult, settings: AppSettings) {
+        val text = resultToText(result, settings)
         _uiState.update { state ->
             val list = state.selectedImages.toMutableList()
             if (index < list.size) {
                 list[index] = original.copy(
                     status = if (result is InferenceResult.Failure) BatchItemStatus.FAILED else BatchItemStatus.DONE,
                     result = result,
+                    text = text,
                 )
             }
             state.copy(selectedImages = list)
@@ -363,24 +324,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private suspend fun persistQueueSnapshot(isComplete: Boolean) {
         val images = _uiState.value.selectedImages
         val settings = _settings.value
-        val queueJson = app.batchSessionRepository.buildQueueJson(images) { resultToText(it.result, settings) }
-        val resultsJson = app.batchSessionRepository.buildResultsJson(images, settings.activeMode) { resultToText(it.result, settings) }
-        val session = BatchSession(
+        val queueJson = app.batchSessionRepository.buildQueueJson(images) { it.text.ifBlank { resultToText(it.result, settings) } }
+        val resultsJson = app.batchSessionRepository.buildResultsJson(images, settings.activeMode) { it.text.ifBlank { resultToText(it.result, settings) } }
+        val entity = com.example.onnxtagger.data.db.BatchSessionEntity(
             id = currentSessionId,
             timestamp = System.currentTimeMillis(),
-            mode = settings.activeMode,
+            mode = settings.activeMode.name,
             imageCount = images.size,
             successCount = images.count { it.status == BatchItemStatus.DONE },
-            isComplete = isComplete,
-            results = emptyList(),
-            queueItems = emptyList(),
-        )
-        val entity = com.example.onnxtagger.data.db.BatchSessionEntity(
-            id = session.id,
-            timestamp = session.timestamp,
-            mode = session.mode.name,
-            imageCount = session.imageCount,
-            successCount = session.successCount,
             isComplete = isComplete,
             resultsJson = resultsJson,
             queueStateJson = queueJson,

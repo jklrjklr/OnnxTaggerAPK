@@ -8,6 +8,7 @@ data class BatchImageItem(
     val status: BatchItemStatus = BatchItemStatus.PENDING,
     val result: InferenceResult? = null,
     val isExpanded: Boolean = false,
+    val text: String = "",
 )
 
 enum class BatchItemStatus { PENDING, PROCESSING, DONE, FAILED }
