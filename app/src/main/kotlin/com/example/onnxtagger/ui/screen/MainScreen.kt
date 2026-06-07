@@ -280,43 +280,44 @@ private fun TopActionBar(
     onShowTagViewer: () -> Unit,
 ) {
     Column {
+        // Row 1: action buttons — evenly spread across full width
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 8.dp, vertical = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                .padding(horizontal = 8.dp, vertical = 2.dp),
+            horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            // Add images
             FilledTonalIconButton(onClick = onAddImages, enabled = !isRunning) {
                 Icon(Icons.Default.Add, contentDescription = "Add images")
             }
-            // Run AI
             FilledTonalIconButton(onClick = onRun, enabled = hasImages && !isRunning) {
                 Icon(Icons.Default.PlayArrow, contentDescription = "Run AI")
             }
-            // Reset
             FilledTonalIconButton(onClick = onReset, enabled = hasImages && !isRunning) {
                 Icon(Icons.Default.Delete, contentDescription = "Reset / delete all")
             }
-            // Save TXTs
             FilledTonalIconButton(onClick = onSaveTxts, enabled = hasText && !isRunning) {
                 Icon(Icons.Default.FolderOpen, contentDescription = "Save TXT files")
             }
-            // Image grid overview
             FilledTonalIconButton(onClick = onShowGrid, enabled = hasImages) {
                 Icon(Icons.Default.GridView, contentDescription = "All images")
             }
-            // Tag viewer (TAG mode only)
             if (activeMode == InferenceMode.TAG) {
                 FilledTonalIconButton(onClick = onShowTagViewer, enabled = hasImages) {
                     Icon(Icons.Default.FilterList, contentDescription = "Tag viewer")
                 }
             }
+        }
 
-            Spacer(Modifier.weight(1f))
-
-            // Tag / Caption toggle
+        // Row 2: mode toggle + navigation/settings
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp, vertical = 0.dp),
+            horizontalArrangement = Arrangement.End,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             InferenceMode.entries.forEach { mode ->
                 FilterChip(
                     selected = activeMode == mode,
@@ -325,30 +326,27 @@ private fun TopActionBar(
                         Text(
                             when (mode) {
                                 InferenceMode.TAG -> "Tag"
-                                InferenceMode.CAPTION -> "Cap"
+                                InferenceMode.CAPTION -> "Caption"
                             },
                             style = MaterialTheme.typography.labelSmall,
                         )
                     },
-                    modifier = Modifier.height(32.dp),
+                    modifier = Modifier.height(32.dp).padding(horizontal = 2.dp),
                 )
             }
-
-            // History
+            Spacer(Modifier.weight(1f))
             IconButton(onClick = onHistory) {
                 Icon(Icons.Default.History, contentDescription = "History")
             }
-            // Models
             IconButton(onClick = onModels) {
                 Icon(Icons.Default.Memory, contentDescription = "Models")
             }
-            // Settings
             IconButton(onClick = onSettings) {
                 Icon(Icons.Default.Settings, contentDescription = "Settings")
             }
         }
 
-        // Running indicator row
+        // Progress bar
         if (isRunning && batchProgress != null) {
             Row(
                 modifier = Modifier
