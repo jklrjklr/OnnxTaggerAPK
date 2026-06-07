@@ -5,16 +5,24 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextAlign
@@ -34,6 +42,8 @@ fun MainScreen(vm: MainViewModel = viewModel()) {
     val uiState by vm.uiState.collectAsStateWithLifecycle()
     val settings by vm.settings.collectAsStateWithLifecycle()
     var showHistory by remember { mutableStateOf(false) }
+    var showImageGrid by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
 
     val imagePickerLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenMultipleDocuments()
@@ -96,6 +106,7 @@ fun MainScreen(vm: MainViewModel = viewModel()) {
                 onModeToggle = { vm.onSettingsChanged(settings.copy(activeMode = it)) },
                 onSettings = vm::toggleSettings,
                 onHistory = { showHistory = true },
+                onShowGrid = { showImageGrid = true },
             )
 
             if (uiState.selectedImages.isEmpty()) {
@@ -156,6 +167,19 @@ fun MainScreen(vm: MainViewModel = viewModel()) {
                 onDismiss = vm::toggleProfileManager,
             )
         }
+        if (showImageGrid && uiState.selectedImages.isNotEmpty()) {
+            ImageGridSheet(
+                images = uiState.selectedImages,
+                currentPage = pagerState.currentPage,
+                onNavigate = { index ->
+                    showImageGrid = false
+                    scope.launch { pagerState.animateScrollToPage(index) }
+                },
+                onRemove = vm::onRemoveImage,
+                onDismiss = { showImageGrid = false },
+            )
+        }
+
         if (showHistory) {
             HistoryBottomSheet(
                 sessions = uiState.recentSessions,
@@ -184,6 +208,7 @@ private fun TopActionBar(
     onModeToggle: (InferenceMode) -> Unit,
     onSettings: () -> Unit,
     onHistory: () -> Unit,
+    onShowGrid: () -> Unit,
 ) {
     Column {
         Row(
@@ -208,6 +233,10 @@ private fun TopActionBar(
             // Save TXTs
             FilledTonalIconButton(onClick = onSaveTxts, enabled = hasText && !isRunning) {
                 Icon(Icons.Default.FolderOpen, contentDescription = "Save TXT files")
+            }
+            // Image grid overview
+            FilledTonalIconButton(onClick = onShowGrid, enabled = hasImages) {
+                Icon(Icons.Default.GridView, contentDescription = "All images")
             }
 
             Spacer(Modifier.weight(1f))
@@ -381,5 +410,108 @@ private fun ImageEditPage(
             },
             maxLines = 6,
         )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ImageGridSheet(
+    images: List<BatchImageItem>,
+    currentPage: Int,
+    onNavigate: (Int) -> Unit,
+    onRemove: (Int) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        dragHandle = {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                BottomSheetDefaults.DragHandle()
+                Text(
+                    "${images.size} image${if (images.size != 1) "s" else ""}",
+                    style = MaterialTheme.typography.titleSmall,
+                    modifier = Modifier.padding(bottom = 8.dp),
+                )
+            }
+        },
+    ) {
+        LazyVerticalGrid(
+            columns = GridCells.Adaptive(minSize = 100.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp),
+            contentPadding = PaddingValues(bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            itemsIndexed(images, key = { _, item -> item.uri.toString() }) { index, item ->
+                GridThumbnail(
+                    item = item,
+                    isCurrent = index == currentPage,
+                    onTap = { onNavigate(index) },
+                    onRemove = { onRemove(index) },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun GridThumbnail(
+    item: BatchImageItem,
+    isCurrent: Boolean,
+    onTap: () -> Unit,
+    onRemove: () -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .aspectRatio(1f)
+            .clip(RoundedCornerShape(8.dp))
+            .border(
+                width = if (isCurrent) 2.dp else 0.dp,
+                color = if (isCurrent) MaterialTheme.colorScheme.primary else Color.Transparent,
+                shape = RoundedCornerShape(8.dp),
+            )
+            .clickable(onClick = onTap),
+    ) {
+        AsyncImage(
+            model = item.uri,
+            contentDescription = item.displayName,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.fillMaxSize(),
+        )
+        // Status dot (bottom-left)
+        if (item.status != BatchItemStatus.PENDING) {
+            Box(modifier = Modifier.align(Alignment.BottomStart).padding(4.dp)) {
+                StatusBadge(status = item.status)
+            }
+        }
+        // Text indicator (bottom-right dot when text is present)
+        if (item.text.isNotBlank()) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(4.dp)
+                    .size(8.dp)
+                    .background(MaterialTheme.colorScheme.primary, CircleShape),
+            )
+        }
+        // Remove button (top-right)
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(3.dp)
+                .size(22.dp)
+                .background(Color.Black.copy(alpha = 0.5f), CircleShape)
+                .clickable(onClick = onRemove),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                Icons.Default.Close,
+                contentDescription = "Remove",
+                tint = Color.White,
+                modifier = Modifier.size(14.dp),
+            )
+        }
     }
 }
