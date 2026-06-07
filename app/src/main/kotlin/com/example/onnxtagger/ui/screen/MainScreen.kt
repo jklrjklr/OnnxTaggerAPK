@@ -33,6 +33,7 @@ import coil.compose.AsyncImage
 import com.example.onnxtagger.data.model.BatchImageItem
 import com.example.onnxtagger.data.model.BatchItemStatus
 import com.example.onnxtagger.data.model.InferenceMode
+import com.example.onnxtagger.data.model.TagFilter
 import com.example.onnxtagger.ui.BatchProgress
 import com.example.onnxtagger.ui.MainViewModel
 
