@@ -1,6 +1,8 @@
 package com.example.onnxtagger.ui.screen
 
+import android.app.Activity
 import android.net.Uri
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -25,6 +27,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -46,7 +49,11 @@ fun MainScreen(vm: MainViewModel = viewModel()) {
     var showImageGrid by remember { mutableStateOf(false) }
     var showTagViewer by remember { mutableStateOf(false) }
     var showResetConfirm by remember { mutableStateOf(false) }
+    var showBackMenu by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+
+    // Back press → open menu (ModalBottomSheet handles its own back press to close itself)
+    BackHandler(enabled = !showBackMenu) { showBackMenu = true }
 
     // Images filtered by active tag filters (only meaningful in TAG mode)
     val filteredImages = remember(uiState.selectedImages, uiState.tagFilters, settings.tagSeparator) {
@@ -123,8 +130,6 @@ fun MainScreen(vm: MainViewModel = viewModel()) {
                 onReset = { showResetConfirm = true },
                 onSaveTxts = vm::onSavePerImageTapped,
                 onModeToggle = { vm.onSettingsChanged(settings.copy(activeMode = it)) },
-                onModels = vm::toggleModelManager,
-                onSettings = vm::toggleSettings,
                 onHistory = { showHistory = true },
                 onShowGrid = { showImageGrid = true },
                 onShowTagViewer = { showTagViewer = true },
@@ -255,6 +260,15 @@ fun MainScreen(vm: MainViewModel = viewModel()) {
                 onDismiss = { showHistory = false },
             )
         }
+        if (showBackMenu) {
+            BackMenuSheet(
+                hasUnsavedText = uiState.selectedImages.any { it.text.isNotBlank() },
+                isRunning = uiState.isRunning,
+                onModelManager = { showBackMenu = false; vm.toggleModelManager() },
+                onSettings = { showBackMenu = false; vm.toggleSettings() },
+                onDismiss = { showBackMenu = false },
+            )
+        }
         uiState.previewItem?.let { item ->
             ImagePreviewScreen(item = item, onDismiss = vm::onDismissPreview)
         }
@@ -273,8 +287,6 @@ private fun TopActionBar(
     onReset: () -> Unit,
     onSaveTxts: () -> Unit,
     onModeToggle: (InferenceMode) -> Unit,
-    onModels: () -> Unit,
-    onSettings: () -> Unit,
     onHistory: () -> Unit,
     onShowGrid: () -> Unit,
     onShowTagViewer: () -> Unit,
@@ -337,12 +349,6 @@ private fun TopActionBar(
             Spacer(Modifier.weight(1f))
             IconButton(onClick = onHistory) {
                 Icon(Icons.Default.History, contentDescription = "History")
-            }
-            IconButton(onClick = onModels) {
-                Icon(Icons.Default.Memory, contentDescription = "Models")
-            }
-            IconButton(onClick = onSettings) {
-                Icon(Icons.Default.Settings, contentDescription = "Settings")
             }
         }
 
@@ -530,6 +536,81 @@ private fun ImageGridSheet(
                 )
             }
         }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun BackMenuSheet(
+    hasUnsavedText: Boolean,
+    isRunning: Boolean,
+    onModelManager: () -> Unit,
+    onSettings: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val context = LocalContext.current
+    var showExitConfirm by remember { mutableStateOf(false) }
+
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 24.dp),
+        ) {
+            Text(
+                "Menu",
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+            )
+            HorizontalDivider()
+            ListItem(
+                headlineContent = { Text("Model Manager") },
+                leadingContent = { Icon(Icons.Default.Memory, contentDescription = null) },
+                modifier = Modifier.clickable(onClick = onModelManager),
+            )
+            ListItem(
+                headlineContent = { Text("Settings") },
+                leadingContent = { Icon(Icons.Default.Settings, contentDescription = null) },
+                modifier = Modifier.clickable(onClick = onSettings),
+            )
+            HorizontalDivider()
+            ListItem(
+                headlineContent = {
+                    Text("Exit", color = MaterialTheme.colorScheme.error)
+                },
+                leadingContent = {
+                    Icon(
+                        Icons.Default.ExitToApp,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.error,
+                    )
+                },
+                modifier = Modifier.clickable {
+                    if (hasUnsavedText || isRunning) showExitConfirm = true
+                    else (context as Activity).finish()
+                },
+            )
+        }
+    }
+
+    if (showExitConfirm) {
+        val reason = when {
+            isRunning -> "AI is still running."
+            else -> "You have unsaved labels."
+        }
+        AlertDialog(
+            onDismissRequest = { showExitConfirm = false },
+            title = { Text("Exit app?") },
+            text = { Text("$reason Exit anyway?") },
+            confirmButton = {
+                TextButton(onClick = { (context as Activity).finish() }) {
+                    Text("Exit", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showExitConfirm = false }) { Text("Cancel") }
+            },
+        )
     }
 }
 
