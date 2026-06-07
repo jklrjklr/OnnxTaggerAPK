@@ -40,7 +40,19 @@ fun SettingsBottomSheet(
                 modifier = Modifier.padding(bottom = 4.dp),
             )
 
-            // Temperature / confidence threshold
+            // Model / Profile management — always at the top
+            OutlinedButton(onClick = onManageModels, modifier = Modifier.fillMaxWidth()) {
+                Icon(Icons.Default.Memory, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("Manage Models")
+            }
+            OutlinedButton(onClick = onManageProfiles, modifier = Modifier.fillMaxWidth()) {
+                Icon(Icons.Default.Bookmarks, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("Manage Profiles")
+            }
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
             val tempLabel = if (settings.activeMode == InferenceMode.TAG) "Confidence Threshold" else "Temperature"
             Column {
                 Row(
@@ -150,19 +162,6 @@ fun SettingsBottomSheet(
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
                 )
-            }
-
-            HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-
-            OutlinedButton(onClick = onManageModels, modifier = Modifier.fillMaxWidth()) {
-                Icon(Icons.Default.Memory, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(8.dp))
-                Text("Manage Models")
-            }
-            OutlinedButton(onClick = onManageProfiles, modifier = Modifier.fillMaxWidth()) {
-                Icon(Icons.Default.Bookmarks, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(8.dp))
-                Text("Manage Profiles")
             }
 
             Spacer(Modifier.height(24.dp))
