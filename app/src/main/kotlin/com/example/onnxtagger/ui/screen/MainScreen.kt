@@ -43,7 +43,20 @@ fun MainScreen(vm: MainViewModel = viewModel()) {
     val settings by vm.settings.collectAsStateWithLifecycle()
     var showHistory by remember { mutableStateOf(false) }
     var showImageGrid by remember { mutableStateOf(false) }
+    var showTagViewer by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+
+    // Images filtered by active tag filters (only meaningful in TAG mode)
+    val filteredImages = remember(uiState.selectedImages, uiState.tagFilters, settings.tagSeparator) {
+        val included = uiState.tagFilters.entries.filter { it.value == TagFilter.INCLUDED }.map { it.key }
+        val excluded = uiState.tagFilters.entries.filter { it.value == TagFilter.EXCLUDED }.map { it.key }
+        if (included.isEmpty() && excluded.isEmpty()) uiState.selectedImages
+        else uiState.selectedImages.filter { item ->
+            val itemTags = item.text.split(settings.tagSeparator).map { it.trim() }.toSet()
+            included.all { it in itemTags } && excluded.none { it in itemTags }
+        }
+    }
+    val isFiltered = uiState.tagFilters.isNotEmpty() && settings.activeMode == InferenceMode.TAG
 
     val imagePickerLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenMultipleDocuments()
@@ -57,14 +70,18 @@ fun MainScreen(vm: MainViewModel = viewModel()) {
         vm.pickSaveDirEvent.collect { saveDirLauncher.launch(null) }
     }
 
-    val pagerState = rememberPagerState { uiState.selectedImages.size }
+    val displayedImages = if (isFiltered) filteredImages else uiState.selectedImages
+    val pagerState = rememberPagerState { displayedImages.size }
 
-    // Clamp page index when images are removed
-    LaunchedEffect(uiState.selectedImages.size) {
-        if (uiState.selectedImages.isNotEmpty() &&
-            pagerState.currentPage >= uiState.selectedImages.size) {
-            pagerState.animateScrollToPage(uiState.selectedImages.size - 1)
+    // Clamp page index when displayed set shrinks
+    LaunchedEffect(displayedImages.size) {
+        if (displayedImages.isNotEmpty() && pagerState.currentPage >= displayedImages.size) {
+            pagerState.animateScrollToPage(displayedImages.size - 1)
         }
+    }
+    // Scroll to first page when filter changes
+    LaunchedEffect(uiState.tagFilters) {
+        if (pagerState.currentPage > 0) pagerState.scrollToPage(0)
     }
 
     val snackbarHostState = remember { SnackbarHostState() }
@@ -107,14 +124,21 @@ fun MainScreen(vm: MainViewModel = viewModel()) {
                 onSettings = vm::toggleSettings,
                 onHistory = { showHistory = true },
                 onShowGrid = { showImageGrid = true },
+                onShowTagViewer = { showTagViewer = true },
             )
 
             if (uiState.selectedImages.isEmpty()) {
                 EmptyImageState(modifier = Modifier.fillMaxSize())
             } else {
-                if (uiState.selectedImages.size > 1) {
+                // Page indicator / filter status
+                val total = uiState.selectedImages.size
+                if (total > 1 || isFiltered) {
+                    val label = if (isFiltered)
+                        "${pagerState.currentPage + 1} / ${displayedImages.size}  (${displayedImages.size} of $total filtered)"
+                    else
+                        "${pagerState.currentPage + 1} / $total"
                     Text(
-                        text = "${pagerState.currentPage + 1} / ${uiState.selectedImages.size}",
+                        text = label,
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(vertical = 2.dp),
@@ -126,16 +150,27 @@ fun MainScreen(vm: MainViewModel = viewModel()) {
                 HorizontalPager(
                     state = pagerState,
                     modifier = Modifier.fillMaxSize(),
-                    key = { i -> uiState.selectedImages.getOrNull(i)?.uri?.toString() ?: i },
+                    key = { i -> displayedImages.getOrNull(i)?.uri?.toString() ?: i },
                 ) { page ->
-                    val item = uiState.selectedImages.getOrNull(page) ?: return@HorizontalPager
+                    val item = displayedImages.getOrNull(page) ?: return@HorizontalPager
+                    val originalIndex = uiState.selectedImages.indexOfFirst { it.uri == item.uri }
                     ImageEditPage(
                         item = item,
                         activeMode = settings.activeMode,
-                        onTextChanged = { vm.onTextChanged(page, it) },
-                        onRemove = { vm.onRemoveImage(page) },
+                        onTextChanged = { if (originalIndex >= 0) vm.onTextChanged(originalIndex, it) },
+                        onRemove = { if (originalIndex >= 0) vm.onRemoveImage(originalIndex) },
                         onPreview = { vm.onPreviewImage(item) },
                     )
+                }
+
+                if (isFiltered && displayedImages.isEmpty()) {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text(
+                            "No images match the current tag filter",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.outline,
+                        )
+                    }
                 }
             }
         }
@@ -167,6 +202,19 @@ fun MainScreen(vm: MainViewModel = viewModel()) {
                 onDismiss = vm::toggleProfileManager,
             )
         }
+        if (showTagViewer && settings.activeMode == InferenceMode.TAG) {
+            TagViewerSheet(
+                images = uiState.selectedImages,
+                tagFilters = uiState.tagFilters,
+                tagSeparator = settings.tagSeparator,
+                onTagFilterToggled = vm::onTagFilterToggled,
+                onClearFilters = vm::onClearTagFilters,
+                onDeleteTag = vm::onDeleteTag,
+                onReplaceTag = vm::onReplaceTag,
+                onDismiss = { showTagViewer = false },
+            )
+        }
+
         if (showImageGrid && uiState.selectedImages.isNotEmpty()) {
             ImageGridSheet(
                 images = uiState.selectedImages,
@@ -209,6 +257,7 @@ private fun TopActionBar(
     onSettings: () -> Unit,
     onHistory: () -> Unit,
     onShowGrid: () -> Unit,
+    onShowTagViewer: () -> Unit,
 ) {
     Column {
         Row(
@@ -237,6 +286,12 @@ private fun TopActionBar(
             // Image grid overview
             FilledTonalIconButton(onClick = onShowGrid, enabled = hasImages) {
                 Icon(Icons.Default.GridView, contentDescription = "All images")
+            }
+            // Tag viewer (TAG mode only)
+            if (activeMode == InferenceMode.TAG) {
+                FilledTonalIconButton(onClick = onShowTagViewer, enabled = hasImages) {
+                    Icon(Icons.Default.FilterList, contentDescription = "Tag viewer")
+                }
             }
 
             Spacer(Modifier.weight(1f))

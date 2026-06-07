@@ -29,6 +29,7 @@ data class MainUiState(
     val showProfileManager: Boolean = false,
     val recentSessions: List<BatchSession> = emptyList(),
     val resumableSessions: List<BatchSession> = emptyList(),
+    val tagFilters: Map<String, TagFilter> = emptyMap(),
 )
 
 data class BatchProgress(val current: Int, val total: Int)
@@ -209,6 +210,46 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun onDismissPreview() = _uiState.update { it.copy(previewItem = null) }
 
     fun onClearAll() = _uiState.update { it.copy(selectedImages = emptyList()) }
+
+    fun onTagFilterToggled(tag: String) {
+        val next = when (_uiState.value.tagFilters[tag] ?: TagFilter.NONE) {
+            TagFilter.NONE -> TagFilter.INCLUDED
+            TagFilter.INCLUDED -> TagFilter.EXCLUDED
+            TagFilter.EXCLUDED -> TagFilter.NONE
+        }
+        val updated = _uiState.value.tagFilters.toMutableMap()
+        if (next == TagFilter.NONE) updated.remove(tag) else updated[tag] = next
+        _uiState.update { it.copy(tagFilters = updated) }
+    }
+
+    fun onClearTagFilters() = _uiState.update { it.copy(tagFilters = emptyMap()) }
+
+    fun onDeleteTag(tag: String) {
+        val sep = _settings.value.tagSeparator
+        _uiState.update { state ->
+            state.copy(selectedImages = state.selectedImages.map { item ->
+                if (item.text.isBlank()) item
+                else item.copy(text = item.text.split(sep)
+                    .map { it.trim() }.filter { it.isNotBlank() && it != tag }
+                    .joinToString(sep))
+            })
+        }
+    }
+
+    fun onReplaceTag(oldTag: String, newTag: String) {
+        val trimmed = newTag.trim()
+        if (trimmed.isBlank()) return
+        val sep = _settings.value.tagSeparator
+        _uiState.update { state ->
+            state.copy(selectedImages = state.selectedImages.map { item ->
+                if (item.text.isBlank()) item
+                else item.copy(text = item.text.split(sep)
+                    .map { it.trim() }.filter { it.isNotBlank() }
+                    .map { if (it == oldTag) trimmed else it }
+                    .joinToString(sep))
+            })
+        }
+    }
 
     fun onSavePerImageTapped() {
         viewModelScope.launch { _pickSaveDirEvent.send(Unit) }
