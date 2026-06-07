@@ -45,6 +45,7 @@ fun MainScreen(vm: MainViewModel = viewModel()) {
     var showHistory by remember { mutableStateOf(false) }
     var showImageGrid by remember { mutableStateOf(false) }
     var showTagViewer by remember { mutableStateOf(false) }
+    var showResetConfirm by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
     // Images filtered by active tag filters (only meaningful in TAG mode)
@@ -119,14 +120,31 @@ fun MainScreen(vm: MainViewModel = viewModel()) {
                 batchProgress = uiState.batchProgress,
                 onAddImages = { imagePickerLauncher.launch(arrayOf("image/*")) },
                 onRun = vm::onRunClicked,
-                onReset = vm::onResetTapped,
+                onReset = { showResetConfirm = true },
                 onSaveTxts = vm::onSavePerImageTapped,
                 onModeToggle = { vm.onSettingsChanged(settings.copy(activeMode = it)) },
+                onModels = vm::toggleModelManager,
                 onSettings = vm::toggleSettings,
                 onHistory = { showHistory = true },
                 onShowGrid = { showImageGrid = true },
                 onShowTagViewer = { showTagViewer = true },
             )
+
+            if (showResetConfirm) {
+                AlertDialog(
+                    onDismissRequest = { showResetConfirm = false },
+                    title = { Text("Reset all images?") },
+                    text = { Text("This will remove all ${uiState.selectedImages.size} image(s) and their text. This cannot be undone.") },
+                    confirmButton = {
+                        TextButton(onClick = { showResetConfirm = false; vm.onResetTapped() }) {
+                            Text("Reset", color = MaterialTheme.colorScheme.error)
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { showResetConfirm = false }) { Text("Cancel") }
+                    },
+                )
+            }
 
             if (uiState.selectedImages.isEmpty()) {
                 EmptyImageState(modifier = Modifier.fillMaxSize())
@@ -255,6 +273,7 @@ private fun TopActionBar(
     onReset: () -> Unit,
     onSaveTxts: () -> Unit,
     onModeToggle: (InferenceMode) -> Unit,
+    onModels: () -> Unit,
     onSettings: () -> Unit,
     onHistory: () -> Unit,
     onShowGrid: () -> Unit,
@@ -278,7 +297,7 @@ private fun TopActionBar(
             }
             // Reset
             FilledTonalIconButton(onClick = onReset, enabled = hasImages && !isRunning) {
-                Icon(Icons.Default.ClearAll, contentDescription = "Reset")
+                Icon(Icons.Default.Delete, contentDescription = "Reset / delete all")
             }
             // Save TXTs
             FilledTonalIconButton(onClick = onSaveTxts, enabled = hasText && !isRunning) {
@@ -318,6 +337,10 @@ private fun TopActionBar(
             // History
             IconButton(onClick = onHistory) {
                 Icon(Icons.Default.History, contentDescription = "History")
+            }
+            // Models
+            IconButton(onClick = onModels) {
+                Icon(Icons.Default.Memory, contentDescription = "Models")
             }
             // Settings
             IconButton(onClick = onSettings) {
