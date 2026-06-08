@@ -24,6 +24,7 @@ class SettingsRepository(private val dataStore: DataStore<Preferences>) {
         private val KEY_ACTIVE_PROFILE = stringPreferencesKey("active_profile_id")
         private val KEY_TAG_MODEL_JSON = stringPreferencesKey("tag_model_config_json")
         private val KEY_CAPTION_MODEL_JSON = stringPreferencesKey("caption_model_config_json")
+        private val KEY_REPLACE_UNDERSCORE = booleanPreferencesKey("replace_underscore_with_space")
     }
 
     private val json = Json { ignoreUnknownKeys = true }
@@ -50,6 +51,7 @@ class SettingsRepository(private val dataStore: DataStore<Preferences>) {
             captionModelConfig = prefs[KEY_CAPTION_MODEL_JSON]
                 ?.let { runCatching { json.decodeFromString<ModelConfig>(it) }.getOrNull() }
                 ?: ModelConfig(mode = InferenceMode.CAPTION),
+            replaceUnderscoreWithSpace = prefs[KEY_REPLACE_UNDERSCORE] ?: false,
         )
     }
 
@@ -68,6 +70,7 @@ class SettingsRepository(private val dataStore: DataStore<Preferences>) {
             prefs[KEY_ACTIVE_PROFILE] = settings.activeProfileId
             prefs[KEY_TAG_MODEL_JSON] = json.encodeToString(settings.tagModelConfig)
             prefs[KEY_CAPTION_MODEL_JSON] = json.encodeToString(settings.captionModelConfig)
+            prefs[KEY_REPLACE_UNDERSCORE] = settings.replaceUnderscoreWithSpace
         }
     }
 }

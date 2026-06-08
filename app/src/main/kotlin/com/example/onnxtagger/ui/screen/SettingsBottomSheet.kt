@@ -1,6 +1,7 @@
 package com.example.onnxtagger.ui.screen
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.ui.Alignment
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -132,6 +133,25 @@ fun SettingsBottomSheet(
 
             // Tag-mode specific
             if (settings.activeMode == InferenceMode.TAG) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column {
+                        Text("Replace _ with space", style = MaterialTheme.typography.bodyMedium)
+                        Text(
+                            "blue_eyes → blue eyes",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.outline,
+                        )
+                    }
+                    Switch(
+                        checked = settings.replaceUnderscoreWithSpace,
+                        onCheckedChange = { onSettingsChanged(settings.copy(replaceUnderscoreWithSpace = it)) },
+                    )
+                }
+
                 Text("Tag sort order:", style = MaterialTheme.typography.labelMedium)
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),

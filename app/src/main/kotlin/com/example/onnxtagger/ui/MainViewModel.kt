@@ -333,7 +333,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun resultToText(result: InferenceResult?, settings: AppSettings): String =
         when (result) {
-            is InferenceResult.TagResult -> result.tags.joinToString(settings.tagSeparator) { it.label }
+            is InferenceResult.TagResult -> result.tags.joinToString(settings.tagSeparator) { tag ->
+                if (settings.replaceUnderscoreWithSpace) tag.label.replace('_', ' ') else tag.label
+            }
             is InferenceResult.CaptionResult -> result.text
             is InferenceResult.Failure -> ""
             null -> ""
