@@ -3,6 +3,9 @@ package com.example.onnxtagger.ui.screen
 import android.app.Activity
 import android.net.Uri
 import androidx.activity.compose.BackHandler
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -50,6 +53,8 @@ fun MainScreen(vm: MainViewModel = viewModel()) {
     var showTagViewer by remember { mutableStateOf(false) }
     var showResetConfirm by remember { mutableStateOf(false) }
     var showBackMenu by remember { mutableStateOf(false) }
+    var showZipNameDialog by remember { mutableStateOf(false) }
+    val pendingZipName = remember { mutableStateOf("") }
     val scope = rememberCoroutineScope()
 
     // Back press → open menu (ModalBottomSheet handles its own back press to close itself)
@@ -74,6 +79,10 @@ fun MainScreen(vm: MainViewModel = viewModel()) {
     val saveDirLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocumentTree()
     ) { uri -> if (uri != null) vm.onSaveDirPicked(uri) }
+
+    val zipDirLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocumentTree()
+    ) { uri -> if (uri != null) vm.onZipDirPicked(uri, pendingZipName.value) }
 
     LaunchedEffect(Unit) {
         vm.pickSaveDirEvent.collect { saveDirLauncher.launch(null) }
@@ -206,6 +215,10 @@ fun MainScreen(vm: MainViewModel = viewModel()) {
                 onSettingsChanged = vm::onSettingsChanged,
                 onManageModels = { vm.toggleSettings(); vm.toggleModelManager() },
                 onManageProfiles = { vm.toggleSettings(); vm.toggleProfileManager() },
+                onSaveAsZip = {
+                    vm.toggleSettings()
+                    showZipNameDialog = true
+                },
             )
         }
         if (uiState.showModelManager) {
@@ -267,6 +280,16 @@ fun MainScreen(vm: MainViewModel = viewModel()) {
                 onModelManager = { showBackMenu = false; vm.toggleModelManager() },
                 onSettings = { showBackMenu = false; vm.toggleSettings() },
                 onDismiss = { showBackMenu = false },
+            )
+        }
+        if (showZipNameDialog) {
+            ZipNameDialog(
+                onSave = { name ->
+                    pendingZipName.value = name
+                    showZipNameDialog = false
+                    zipDirLauncher.launch(null)
+                },
+                onDismiss = { showZipNameDialog = false },
             )
         }
         uiState.previewItem?.let { item ->
@@ -537,6 +560,55 @@ private fun ImageGridSheet(
             }
         }
     }
+}
+
+@Composable
+private fun ZipNameDialog(
+    onSave: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val defaultName = remember {
+        SimpleDateFormat("yyyy_MM_dd_HHmm", Locale.US).format(Date())
+    }
+    var name by remember { mutableStateOf(defaultName) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Save as ZIP") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    "All images and their label files will be bundled into a ZIP.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.outline,
+                )
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text("File name") },
+                    trailingIcon = {
+                        Text(
+                            ".zip",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.outline,
+                            modifier = Modifier.padding(end = 8.dp),
+                        )
+                    },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { if (name.isNotBlank()) onSave(name.trim()) },
+                enabled = name.isNotBlank(),
+            ) { Text("Pick folder & save") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        },
+    )
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

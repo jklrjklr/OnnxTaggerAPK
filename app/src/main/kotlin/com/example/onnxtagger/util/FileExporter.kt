@@ -5,6 +5,9 @@ import android.net.Uri
 import android.provider.DocumentsContract
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.io.BufferedOutputStream
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
 
 object FileExporter {
 
@@ -56,6 +59,52 @@ object FileExporter {
                 count++
             }
             count
+        }
+    }
+
+    // Bundles all images + their .txt labels into a single ZIP file in the given tree directory.
+    // items: list of (displayName, imageUri, textContent)
+    // Returns count of label files written (images without text are still included).
+    suspend fun exportZip(
+        context: Context,
+        treeDirUri: Uri,
+        zipFileName: String,
+        items: List<Triple<String, Uri, String>>,
+    ): Result<Int> = withContext(Dispatchers.IO) {
+        runCatching {
+            val resolver = context.contentResolver
+            val treeDocId = DocumentsContract.getTreeDocumentId(treeDirUri)
+            val treeDocUri = DocumentsContract.buildDocumentUriUsingTree(treeDirUri, treeDocId)
+
+            val name = if (zipFileName.endsWith(".zip", ignoreCase = true)) zipFileName else "$zipFileName.zip"
+            val zipUri = DocumentsContract.createDocument(resolver, treeDocUri, "application/zip", name)
+                ?: error("Could not create ZIP file in target directory")
+
+            var labelCount = 0
+            resolver.openOutputStream(zipUri)!!.use { out ->
+                ZipOutputStream(BufferedOutputStream(out)).use { zos ->
+                    for ((displayName, imageUri, text) in items) {
+                        val imageName = displayName.substringAfterLast('/').ifBlank { displayName }
+
+                        // Add image bytes
+                        resolver.openInputStream(imageUri)?.use { imgIn ->
+                            zos.putNextEntry(ZipEntry(imageName))
+                            imgIn.copyTo(zos)
+                            zos.closeEntry()
+                        }
+
+                        // Add label .txt if present
+                        if (text.isNotBlank()) {
+                            val txtName = imageName.substringBeforeLast('.') + ".txt"
+                            zos.putNextEntry(ZipEntry(txtName))
+                            zos.write(text.toByteArray(Charsets.UTF_8))
+                            zos.closeEntry()
+                            labelCount++
+                        }
+                    }
+                }
+            }
+            labelCount
         }
     }
 }

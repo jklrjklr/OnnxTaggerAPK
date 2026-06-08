@@ -259,6 +259,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         doSavePerImage(uri)
     }
 
+    fun onZipDirPicked(uri: Uri, zipName: String) {
+        val items = _uiState.value.selectedImages
+        if (items.isEmpty()) return
+        viewModelScope.launch {
+            val triples = items.map { Triple(it.displayName, it.uri, it.text) }
+            val result = FileExporter.exportZip(getApplication(), uri, zipName, triples)
+            val msg = result.fold(
+                { count -> "ZIP saved — $count label${if (count != 1) "s" else ""}" },
+                { "ZIP save failed: ${it.message}" },
+            )
+            _uiState.update { it.copy(saveResultSnackbar = msg) }
+        }
+    }
+
     private fun doSavePerImage(dirUri: Uri) {
         val items = _uiState.value.selectedImages
             .filter { it.text.isNotBlank() }

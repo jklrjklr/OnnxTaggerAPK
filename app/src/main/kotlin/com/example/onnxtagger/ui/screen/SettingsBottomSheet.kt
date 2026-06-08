@@ -6,6 +6,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.Bookmarks
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material3.*
@@ -23,6 +24,7 @@ fun SettingsBottomSheet(
     onSettingsChanged: (AppSettings) -> Unit,
     onManageModels: () -> Unit,
     onManageProfiles: () -> Unit,
+    onSaveAsZip: () -> Unit,
 ) {
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -51,6 +53,11 @@ fun SettingsBottomSheet(
                 Icon(Icons.Default.Bookmarks, contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(8.dp))
                 Text("Manage Profiles")
+            }
+            OutlinedButton(onClick = onSaveAsZip, modifier = Modifier.fillMaxWidth()) {
+                Icon(Icons.Default.Archive, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("Save result as ZIP")
             }
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
