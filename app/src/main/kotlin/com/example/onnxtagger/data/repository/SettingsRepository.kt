@@ -25,6 +25,10 @@ class SettingsRepository(private val dataStore: DataStore<Preferences>) {
         private val KEY_TAG_MODEL_JSON = stringPreferencesKey("tag_model_config_json")
         private val KEY_CAPTION_MODEL_JSON = stringPreferencesKey("caption_model_config_json")
         private val KEY_REPLACE_UNDERSCORE = booleanPreferencesKey("replace_underscore_with_space")
+        private val KEY_TRIGGER_WORD = stringPreferencesKey("trigger_word")
+        private val KEY_WARM_UP_ON_START = booleanPreferencesKey("warm_up_on_start")
+        private val KEY_PAGER_PREFETCH = intPreferencesKey("pager_prefetch_limit")
+        private val KEY_AUTO_RESUME = booleanPreferencesKey("auto_resume_last")
     }
 
     private val json = Json { ignoreUnknownKeys = true }
@@ -52,6 +56,10 @@ class SettingsRepository(private val dataStore: DataStore<Preferences>) {
                 ?.let { runCatching { json.decodeFromString<ModelConfig>(it) }.getOrNull() }
                 ?: ModelConfig(mode = InferenceMode.CAPTION),
             replaceUnderscoreWithSpace = prefs[KEY_REPLACE_UNDERSCORE] ?: false,
+            triggerWord = prefs[KEY_TRIGGER_WORD] ?: "",
+            warmUpOnStart = prefs[KEY_WARM_UP_ON_START] ?: false,
+            pagerPrefetchLimit = prefs[KEY_PAGER_PREFETCH] ?: 1,
+            autoResumeLast = prefs[KEY_AUTO_RESUME] ?: false,
         )
     }
 
@@ -71,6 +79,10 @@ class SettingsRepository(private val dataStore: DataStore<Preferences>) {
             prefs[KEY_TAG_MODEL_JSON] = json.encodeToString(settings.tagModelConfig)
             prefs[KEY_CAPTION_MODEL_JSON] = json.encodeToString(settings.captionModelConfig)
             prefs[KEY_REPLACE_UNDERSCORE] = settings.replaceUnderscoreWithSpace
+            prefs[KEY_TRIGGER_WORD] = settings.triggerWord
+            prefs[KEY_WARM_UP_ON_START] = settings.warmUpOnStart
+            prefs[KEY_PAGER_PREFETCH] = settings.pagerPrefetchLimit
+            prefs[KEY_AUTO_RESUME] = settings.autoResumeLast
         }
     }
 }

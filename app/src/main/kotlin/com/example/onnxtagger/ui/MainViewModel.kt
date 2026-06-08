@@ -1,6 +1,7 @@
 package com.example.onnxtagger.ui
 
 import android.app.Application
+import android.graphics.BitmapFactory
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -9,6 +10,7 @@ import com.example.onnxtagger.data.model.*
 import com.example.onnxtagger.data.repository.BatchSession
 import com.example.onnxtagger.inference.InferenceDispatchers
 import com.example.onnxtagger.util.FileExporter
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.channels.Channel
@@ -30,6 +32,7 @@ data class MainUiState(
     val recentSessions: List<BatchSession> = emptyList(),
     val resumableSessions: List<BatchSession> = emptyList(),
     val tagFilters: Map<String, TagFilter> = emptyMap(),
+    val zipProgress: Pair<Int, Int>? = null,
 )
 
 data class BatchProgress(val current: Int, val total: Int)
@@ -53,11 +56,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     companion object {
         const val MAX_QUEUE_SIZE = 200
+        const val ZIP_PROGRESS_THRESHOLD = 50
     }
 
     init {
+        // Ongoing settings + warm-up on first load
+        var warmUpDone = false
         viewModelScope.launch {
-            app.settingsRepository.settingsFlow.collect { s -> _settings.value = s }
+            app.settingsRepository.settingsFlow.collect { s ->
+                _settings.value = s
+                if (!warmUpDone && s.warmUpOnStart && s.tagModelConfig.modelUriString.isNotBlank()) {
+                    warmUpDone = true
+                    launch {
+                        runCatching { app.sessionManager.getOrLoadTagSession(s.tagModelConfig) }
+                    }
+                }
+            }
         }
         viewModelScope.launch {
             app.batchSessionRepository.recentFlow.collect { sessions ->
@@ -67,6 +81,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             app.batchSessionRepository.resumableFlow.collect { sessions ->
                 _uiState.update { it.copy(resumableSessions = sessions) }
+            }
+        }
+        // Auto-resume: runs once after both settings and sessions are available
+        viewModelScope.launch {
+            val s = app.settingsRepository.settingsFlow.first()
+            if (s.autoResumeLast) {
+                val sessions = app.batchSessionRepository.resumableFlow.first()
+                if (sessions.isNotEmpty() && _uiState.value.selectedImages.isEmpty()) {
+                    val session = sessions.first()
+                    val restored = app.batchSessionRepository.restoreQueueItems(session.queueItems)
+                    currentSessionId = session.id
+                    _uiState.update { it.copy(selectedImages = restored) }
+                    loadImageDimensions(restored)
+                }
             }
         }
     }
@@ -88,21 +116,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
         val combined = (current + newItems).distinctBy { it.uri }
         _uiState.update { it.copy(selectedImages = combined.take(MAX_QUEUE_SIZE)) }
+        loadImageDimensions(newItems)
     }
 
     fun onRunClicked() {
         val images = _uiState.value.selectedImages
-        if (images.isEmpty()) return
+        val toProcess = images.filter { it.isSelected && it.status != BatchItemStatus.DONE }
+        if (toProcess.isEmpty()) return
         val settings = _settings.value
         currentSessionId = UUID.randomUUID().toString()
         _uiState.update { it.copy(isRunning = true, error = null) }
 
         batchJob = viewModelScope.launch {
+            var processed = 0
             images.forEachIndexed { i, item ->
-                if (item.status == BatchItemStatus.DONE) return@forEachIndexed
+                if (!item.isSelected || item.status == BatchItemStatus.DONE) return@forEachIndexed
 
+                processed++
                 updateItemStatus(i, BatchItemStatus.PROCESSING)
-                _uiState.update { it.copy(batchProgress = BatchProgress(i + 1, images.size)) }
+                _uiState.update { it.copy(batchProgress = BatchProgress(processed, toProcess.size)) }
                 persistQueueSnapshot(isComplete = false)
 
                 val result = when (settings.activeMode) {
@@ -138,6 +170,38 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val list = state.selectedImages.toMutableList()
             if (index in list.indices) list[index] = list[index].copy(text = text)
             state.copy(selectedImages = list)
+        }
+    }
+
+    fun onUndoText(index: Int) {
+        _uiState.update { state ->
+            val list = state.selectedImages.toMutableList()
+            if (index in list.indices) {
+                val item = list[index]
+                val prev = item.undoText ?: return@update state
+                list[index] = item.copy(text = prev, undoText = null)
+            }
+            state.copy(selectedImages = list)
+        }
+    }
+
+    fun onToggleImageSelected(index: Int) {
+        _uiState.update { state ->
+            val list = state.selectedImages.toMutableList()
+            if (index in list.indices) list[index] = list[index].copy(isSelected = !list[index].isSelected)
+            state.copy(selectedImages = list)
+        }
+    }
+
+    fun onSelectAllImages() {
+        _uiState.update { state ->
+            state.copy(selectedImages = state.selectedImages.map { it.copy(isSelected = true) })
+        }
+    }
+
+    fun onDeselectAllImages() {
+        _uiState.update { state ->
+            state.copy(selectedImages = state.selectedImages.map { it.copy(isSelected = false) })
         }
     }
 
@@ -264,7 +328,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (items.isEmpty()) return
         viewModelScope.launch {
             val triples = items.map { Triple(it.displayName, it.uri, it.text) }
-            val result = FileExporter.exportZip(getApplication(), uri, zipName, triples)
+            val showProgress = items.size > ZIP_PROGRESS_THRESHOLD
+            val result = FileExporter.exportZip(
+                context = getApplication(),
+                treeDirUri = uri,
+                zipFileName = zipName,
+                items = triples,
+                onProgress = if (showProgress) { current, total ->
+                    _uiState.update { it.copy(zipProgress = Pair(current, total)) }
+                } else null,
+            )
+            _uiState.update { it.copy(zipProgress = null) }
             val msg = result.fold(
                 { count -> "ZIP saved — $count label${if (count != 1) "s" else ""}" },
                 { "ZIP save failed: ${it.message}" },
@@ -338,6 +412,34 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         super.onCleared()
     }
 
+    private fun loadImageDimensions(items: List<BatchImageItem>) {
+        viewModelScope.launch(Dispatchers.IO) {
+            items.forEach { item ->
+                val opts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                runCatching {
+                    getApplication<Application>().contentResolver.openInputStream(item.uri)?.use {
+                        BitmapFactory.decodeStream(it, null, opts)
+                    }
+                    if (opts.outWidth > 0) {
+                        val idx = _uiState.value.selectedImages.indexOfFirst { it.uri == item.uri }
+                        if (idx >= 0) {
+                            _uiState.update { state ->
+                                val list = state.selectedImages.toMutableList()
+                                if (idx < list.size && list[idx].imageWidth == 0) {
+                                    list[idx] = list[idx].copy(
+                                        imageWidth = opts.outWidth,
+                                        imageHeight = opts.outHeight,
+                                    )
+                                }
+                                state.copy(selectedImages = list)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     private suspend fun getCachedLabels(config: ModelConfig): List<String> {
         if (config.labelsUriString.isBlank()) return emptyList()
         return labelCache.getOrPut(config.labelsUriString) {
@@ -347,8 +449,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun resultToText(result: InferenceResult?, settings: AppSettings): String =
         when (result) {
-            is InferenceResult.TagResult -> result.tags.joinToString(settings.tagSeparator) { tag ->
-                if (settings.replaceUnderscoreWithSpace) tag.label.replace('_', ' ') else tag.label
+            is InferenceResult.TagResult -> {
+                val tags = result.tags.joinToString(settings.tagSeparator) { tag ->
+                    if (settings.replaceUnderscoreWithSpace) tag.label.replace('_', ' ') else tag.label
+                }
+                val tw = settings.triggerWord.trim()
+                if (tw.isNotBlank()) "$tw${settings.tagSeparator}$tags" else tags
             }
             is InferenceResult.CaptionResult -> result.text
             is InferenceResult.Failure -> ""
@@ -364,14 +470,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun updateItemResult(index: Int, original: BatchImageItem, result: InferenceResult, settings: AppSettings) {
-        val text = resultToText(result, settings)
+        val newText = resultToText(result, settings)
         _uiState.update { state ->
             val list = state.selectedImages.toMutableList()
             if (index < list.size) {
                 list[index] = original.copy(
                     status = if (result is InferenceResult.Failure) BatchItemStatus.FAILED else BatchItemStatus.DONE,
                     result = result,
-                    text = text,
+                    text = newText,
+                    // save old non-blank text for undo, only if it differs from new result
+                    undoText = original.text.takeIf { it.isNotBlank() && it != newText },
                 )
             }
             state.copy(selectedImages = list)

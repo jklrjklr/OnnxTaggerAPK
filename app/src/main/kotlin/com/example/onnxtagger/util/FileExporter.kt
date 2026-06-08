@@ -70,6 +70,7 @@ object FileExporter {
         treeDirUri: Uri,
         zipFileName: String,
         items: List<Triple<String, Uri, String>>,
+        onProgress: ((current: Int, total: Int) -> Unit)? = null,
     ): Result<Int> = withContext(Dispatchers.IO) {
         runCatching {
             val resolver = context.contentResolver
@@ -83,7 +84,7 @@ object FileExporter {
             var labelCount = 0
             resolver.openOutputStream(zipUri)!!.use { out ->
                 ZipOutputStream(BufferedOutputStream(out)).use { zos ->
-                    for ((displayName, imageUri, text) in items) {
+                    items.forEachIndexed { idx, (displayName, imageUri, text) ->
                         val imageName = displayName.substringAfterLast('/').ifBlank { displayName }
 
                         // Add image bytes
@@ -101,6 +102,8 @@ object FileExporter {
                             zos.closeEntry()
                             labelCount++
                         }
+
+                        onProgress?.invoke(idx + 1, items.size)
                     }
                 }
             }

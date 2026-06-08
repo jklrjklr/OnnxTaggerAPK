@@ -13,6 +13,10 @@ data class AppSettings(
     val maxTokens: Int = 200,
     val activeProfileId: String = "",
     val replaceUnderscoreWithSpace: Boolean = false,
+    val triggerWord: String = "",
+    val warmUpOnStart: Boolean = false,
+    val pagerPrefetchLimit: Int = 1,
+    val autoResumeLast: Boolean = false,
     val tagModelConfig: ModelConfig = ModelConfig(mode = InferenceMode.TAG),
     val captionModelConfig: ModelConfig = ModelConfig(mode = InferenceMode.CAPTION),
 )

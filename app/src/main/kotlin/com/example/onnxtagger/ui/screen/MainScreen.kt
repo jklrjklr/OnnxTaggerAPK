@@ -184,6 +184,7 @@ fun MainScreen(vm: MainViewModel = viewModel()) {
                     state = pagerState,
                     modifier = Modifier.fillMaxSize(),
                     key = { i -> displayedImages.getOrNull(i)?.uri?.toString() ?: i },
+                    beyondViewportPageCount = settings.pagerPrefetchLimit,
                 ) { page ->
                     val item = displayedImages.getOrNull(page) ?: return@HorizontalPager
                     val originalIndex = uiState.selectedImages.indexOfFirst { it.uri == item.uri }
@@ -191,6 +192,8 @@ fun MainScreen(vm: MainViewModel = viewModel()) {
                         item = item,
                         activeMode = settings.activeMode,
                         onTextChanged = { if (originalIndex >= 0) vm.onTextChanged(originalIndex, it) },
+                        onUndo = { if (originalIndex >= 0) vm.onUndoText(originalIndex) },
+                        onToggleSelected = { if (originalIndex >= 0) vm.onToggleImageSelected(originalIndex) },
                         onRemove = { if (originalIndex >= 0) vm.onRemoveImage(originalIndex) },
                         onPreview = { vm.onPreviewImage(item) },
                     )
@@ -261,6 +264,9 @@ fun MainScreen(vm: MainViewModel = viewModel()) {
                     scope.launch { pagerState.animateScrollToPage(index) }
                 },
                 onRemove = vm::onRemoveImage,
+                onToggleSelected = vm::onToggleImageSelected,
+                onSelectAll = vm::onSelectAllImages,
+                onDeselectAll = vm::onDeselectAllImages,
                 onDismiss = { showImageGrid = false },
             )
         }
@@ -280,6 +286,26 @@ fun MainScreen(vm: MainViewModel = viewModel()) {
                 onModelManager = { showBackMenu = false; vm.toggleModelManager() },
                 onSettings = { showBackMenu = false; vm.toggleSettings() },
                 onDismiss = { showBackMenu = false },
+            )
+        }
+        uiState.zipProgress?.let { (current, total) ->
+            AlertDialog(
+                onDismissRequest = {},
+                title = { Text("Saving ZIP…") },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        LinearProgressIndicator(
+                            progress = { current.toFloat() / total },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        Text(
+                            "$current / $total images",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.outline,
+                        )
+                    }
+                },
+                confirmButton = {},
             )
         }
         if (showZipNameDialog) {
@@ -428,11 +454,14 @@ private fun ImageEditPage(
     item: BatchImageItem,
     activeMode: InferenceMode,
     onTextChanged: (String) -> Unit,
+    onUndo: () -> Unit,
+    onToggleSelected: () -> Unit,
     onRemove: () -> Unit,
     onPreview: () -> Unit,
 ) {
+    val dimSmall = item.imageWidth > 0 && item.imageWidth < 512 && item.imageHeight < 512
+
     Column(modifier = Modifier.fillMaxSize()) {
-        // Image area
         Box(
             modifier = Modifier
                 .weight(1f)
@@ -460,9 +489,25 @@ private fun ImageEditPage(
                     .background(Color.Black.copy(alpha = 0.45f), CircleShape),
             ) {
                 IconButton(onClick = onRemove, modifier = Modifier.size(32.dp)) {
+                    Icon(Icons.Default.Close, contentDescription = "Remove", tint = Color.White, modifier = Modifier.size(18.dp))
+                }
+            }
+
+            // Select toggle (bottom-left)
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(8.dp)
+                    .background(
+                        if (item.isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.85f)
+                        else Color.Black.copy(alpha = 0.45f),
+                        CircleShape,
+                    ),
+            ) {
+                IconButton(onClick = onToggleSelected, modifier = Modifier.size(32.dp)) {
                     Icon(
-                        Icons.Default.Close,
-                        contentDescription = "Remove",
+                        if (item.isSelected) Icons.Default.CheckCircle else Icons.Default.RadioButtonUnchecked,
+                        contentDescription = if (item.isSelected) "Deselect for run" else "Select for run",
                         tint = Color.White,
                         modifier = Modifier.size(18.dp),
                     )
@@ -477,42 +522,56 @@ private fun ImageEditPage(
                     .background(Color.Black.copy(alpha = 0.45f), CircleShape),
             ) {
                 IconButton(onClick = onPreview, modifier = Modifier.size(32.dp)) {
-                    Icon(
-                        Icons.Default.OpenInFull,
-                        contentDescription = "Preview",
-                        tint = Color.White,
-                        modifier = Modifier.size(18.dp),
-                    )
+                    Icon(Icons.Default.OpenInFull, contentDescription = "Preview", tint = Color.White, modifier = Modifier.size(18.dp))
                 }
             }
 
-            // Processing overlay
             if (item.status == BatchItemStatus.PROCESSING) {
-                CircularProgressIndicator(
-                    modifier = Modifier.align(Alignment.Center).size(48.dp),
-                    strokeWidth = 4.dp,
+                CircularProgressIndicator(modifier = Modifier.align(Alignment.Center).size(48.dp), strokeWidth = 4.dp)
+            }
+        }
+
+        // Filename + resolution row
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 10.dp, vertical = 2.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Text(
+                item.displayName.substringAfterLast('/').substringAfterLast(':').take(40),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.outline,
+                modifier = Modifier.weight(1f),
+            )
+            if (item.imageWidth > 0) {
+                Text(
+                    "${item.imageWidth}×${item.imageHeight}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (dimSmall) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.outline,
                 )
             }
         }
 
-        // Text input
+        // Text input with undo trailing icon
         OutlinedTextField(
             value = item.text,
             onValueChange = onTextChanged,
             modifier = Modifier
                 .fillMaxWidth()
                 .heightIn(min = 88.dp, max = 180.dp)
-                .padding(horizontal = 8.dp, vertical = 6.dp),
-            label = {
-                Text(if (activeMode == InferenceMode.TAG) "Tags" else "Caption")
-            },
+                .padding(horizontal = 8.dp, vertical = 4.dp),
+            label = { Text(if (activeMode == InferenceMode.TAG) "Tags" else "Caption") },
             placeholder = {
-                Text(
-                    if (activeMode == InferenceMode.TAG)
-                        "Run AI or type tags manually…"
-                    else
-                        "Run AI or type caption manually…"
-                )
+                Text(if (activeMode == InferenceMode.TAG) "Run AI or type tags manually…" else "Run AI or type caption manually…")
+            },
+            trailingIcon = {
+                if (item.undoText != null) {
+                    IconButton(onClick = onUndo) {
+                        Icon(Icons.Default.Undo, contentDescription = "Undo AI result", modifier = Modifier.size(20.dp))
+                    }
+                }
             },
             maxLines = 6,
         )
@@ -526,18 +585,35 @@ private fun ImageGridSheet(
     currentPage: Int,
     onNavigate: (Int) -> Unit,
     onRemove: (Int) -> Unit,
+    onToggleSelected: (Int) -> Unit,
+    onSelectAll: () -> Unit,
+    onDeselectAll: () -> Unit,
     onDismiss: () -> Unit,
 ) {
+    val allSelected = images.all { it.isSelected }
+    val selectedCount = images.count { it.isSelected }
+
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         dragHandle = {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 BottomSheetDefaults.DragHandle()
-                Text(
-                    "${images.size} image${if (images.size != 1) "s" else ""}",
-                    style = MaterialTheme.typography.titleSmall,
-                    modifier = Modifier.padding(bottom = 8.dp),
-                )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp)
+                        .padding(bottom = 8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        "${images.size} image${if (images.size != 1) "s" else ""}  •  $selectedCount selected",
+                        style = MaterialTheme.typography.titleSmall,
+                    )
+                    TextButton(onClick = if (allSelected) onDeselectAll else onSelectAll) {
+                        Text(if (allSelected) "Deselect all" else "Select all")
+                    }
+                }
             }
         },
     ) {
@@ -556,6 +632,7 @@ private fun ImageGridSheet(
                     isCurrent = index == currentPage,
                     onTap = { onNavigate(index) },
                     onRemove = { onRemove(index) },
+                    onToggleSelected = { onToggleSelected(index) },
                 )
             }
         }
@@ -692,23 +769,27 @@ private fun GridThumbnail(
     isCurrent: Boolean,
     onTap: () -> Unit,
     onRemove: () -> Unit,
+    onToggleSelected: () -> Unit,
 ) {
+    val borderColor = when {
+        isCurrent -> MaterialTheme.colorScheme.primary
+        !item.isSelected -> MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)
+        else -> Color.Transparent
+    }
     Box(
         modifier = Modifier
             .aspectRatio(1f)
             .clip(RoundedCornerShape(8.dp))
-            .border(
-                width = if (isCurrent) 2.dp else 0.dp,
-                color = if (isCurrent) MaterialTheme.colorScheme.primary else Color.Transparent,
-                shape = RoundedCornerShape(8.dp),
-            )
+            .border(width = if (isCurrent || !item.isSelected) 2.dp else 0.dp, color = borderColor, shape = RoundedCornerShape(8.dp))
             .clickable(onClick = onTap),
     ) {
         AsyncImage(
             model = item.uri,
             contentDescription = item.displayName,
             contentScale = ContentScale.Crop,
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.fillMaxSize().let {
+                if (!item.isSelected) it.background(Color.Black.copy(alpha = 0.35f)) else it
+            },
         )
         // Status dot (bottom-left)
         if (item.status != BatchItemStatus.PENDING) {
@@ -716,7 +797,7 @@ private fun GridThumbnail(
                 StatusBadge(status = item.status)
             }
         }
-        // Text indicator (bottom-right dot when text is present)
+        // Text indicator dot (bottom-right)
         if (item.text.isNotBlank()) {
             Box(
                 modifier = Modifier
@@ -724,6 +805,27 @@ private fun GridThumbnail(
                     .padding(4.dp)
                     .size(8.dp)
                     .background(MaterialTheme.colorScheme.primary, CircleShape),
+            )
+        }
+        // Selected toggle (top-left)
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .padding(3.dp)
+                .size(22.dp)
+                .background(
+                    if (item.isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.85f)
+                    else Color.Black.copy(alpha = 0.5f),
+                    CircleShape,
+                )
+                .clickable(onClick = onToggleSelected),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                if (item.isSelected) Icons.Default.Check else Icons.Default.Close,
+                contentDescription = if (item.isSelected) "Selected" else "Excluded from run",
+                tint = Color.White,
+                modifier = Modifier.size(13.dp),
             )
         }
         // Remove button (top-right)
@@ -736,12 +838,7 @@ private fun GridThumbnail(
                 .clickable(onClick = onRemove),
             contentAlignment = Alignment.Center,
         ) {
-            Icon(
-                Icons.Default.Close,
-                contentDescription = "Remove",
-                tint = Color.White,
-                modifier = Modifier.size(14.dp),
-            )
+            Icon(Icons.Default.Close, contentDescription = "Remove", tint = Color.White, modifier = Modifier.size(14.dp))
         }
     }
 }

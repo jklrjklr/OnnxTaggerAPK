@@ -43,7 +43,7 @@ fun SettingsBottomSheet(
                 modifier = Modifier.padding(bottom = 4.dp),
             )
 
-            // Model / Profile management — always at the top
+            // ── Quick actions ────────────────────────────────────────────────
             OutlinedButton(onClick = onManageModels, modifier = Modifier.fillMaxWidth()) {
                 Icon(Icons.Default.Memory, contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(8.dp))
@@ -61,6 +61,8 @@ fun SettingsBottomSheet(
             }
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+
+            // ── Inference ────────────────────────────────────────────────────
             val tempLabel = if (settings.activeMode == InferenceMode.TAG) "Confidence Threshold" else "Temperature"
             Column {
                 Row(
@@ -74,11 +76,10 @@ fun SettingsBottomSheet(
                     value = settings.temperature,
                     onValueChange = { onSettingsChanged(settings.copy(temperature = it)) },
                     valueRange = 0f..1f,
-                    steps = 19, // 20 intervals of 0.05
+                    steps = 19,
                 )
             }
 
-            // Max tags or max tokens
             if (settings.activeMode == InferenceMode.TAG) {
                 IntInputField(
                     label = "Max Tags",
@@ -93,7 +94,7 @@ fun SettingsBottomSheet(
                 )
             }
 
-            // Prepend / Append
+            // ── Output formatting ─────────────────────────────────────────────
             OutlinedTextField(
                 value = settings.prependText,
                 onValueChange = { onSettingsChanged(settings.copy(prependText = it)) },
@@ -109,7 +110,6 @@ fun SettingsBottomSheet(
                 singleLine = true,
             )
 
-            // Act on existing
             Text("When output already has content:", style = MaterialTheme.typography.labelMedium)
             Row(
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -129,7 +129,6 @@ fun SettingsBottomSheet(
                 }
             }
 
-            // Batch separator
             OutlinedTextField(
                 value = settings.batchItemSeparator,
                 onValueChange = { onSettingsChanged(settings.copy(batchItemSeparator = it)) },
@@ -138,26 +137,24 @@ fun SettingsBottomSheet(
                 singleLine = true,
             )
 
-            // Tag-mode specific
+            // ── Tag-mode specific ─────────────────────────────────────────────
             if (settings.activeMode == InferenceMode.TAG) {
-                Row(
+                OutlinedTextField(
+                    value = settings.triggerWord,
+                    onValueChange = { onSettingsChanged(settings.copy(triggerWord = it)) },
+                    label = { Text("Trigger word") },
+                    placeholder = { Text("e.g. my_character_v1") },
+                    supportingText = { Text("Prepended before tags in every AI result") },
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Column {
-                        Text("Replace _ with space", style = MaterialTheme.typography.bodyMedium)
-                        Text(
-                            "blue_eyes → blue eyes",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.outline,
-                        )
-                    }
-                    Switch(
-                        checked = settings.replaceUnderscoreWithSpace,
-                        onCheckedChange = { onSettingsChanged(settings.copy(replaceUnderscoreWithSpace = it)) },
-                    )
-                }
+                    singleLine = true,
+                )
+
+                ToggleRow(
+                    title = "Replace _ with space",
+                    subtitle = "blue_eyes → blue eyes",
+                    checked = settings.replaceUnderscoreWithSpace,
+                    onCheckedChange = { onSettingsChanged(settings.copy(replaceUnderscoreWithSpace = it)) },
+                )
 
                 Text("Tag sort order:", style = MaterialTheme.typography.labelMedium)
                 Row(
@@ -191,19 +188,71 @@ fun SettingsBottomSheet(
                 )
             }
 
+            HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+
+            // ── App behaviour ─────────────────────────────────────────────────
+            Text("App behaviour", style = MaterialTheme.typography.labelMedium)
+
+            ToggleRow(
+                title = "Warm up model on start",
+                subtitle = "Loads ONNX session in background when app opens. Reduces first-run delay.\nWarning: increases startup RAM usage.",
+                checked = settings.warmUpOnStart,
+                onCheckedChange = { onSettingsChanged(settings.copy(warmUpOnStart = it)) },
+            )
+
+            ToggleRow(
+                title = "Auto-resume last session",
+                subtitle = "Restores the most recent unfinished image queue on startup.",
+                checked = settings.autoResumeLast,
+                onCheckedChange = { onSettingsChanged(settings.copy(autoResumeLast = it)) },
+            )
+
+            IntInputField(
+                label = "Pager prefetch (pages)",
+                value = settings.pagerPrefetchLimit,
+                onValueChange = { onSettingsChanged(settings.copy(pagerPrefetchLimit = it.coerceIn(0, 5))) },
+                supportingText = "Pre-render N neighbour pages (0 = off, saves RAM on large queues)",
+            )
+
             Spacer(Modifier.height(24.dp))
         }
     }
 }
 
 @Composable
-private fun IntInputField(label: String, value: Int, onValueChange: (Int) -> Unit) {
+private fun ToggleRow(
+    title: String,
+    subtitle: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.Top,
+    ) {
+        Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
+            Text(title, style = MaterialTheme.typography.bodyMedium)
+            Text(subtitle, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
+        }
+        Switch(checked = checked, onCheckedChange = onCheckedChange)
+    }
+}
+
+@Composable
+private fun IntInputField(
+    label: String,
+    value: Int,
+    onValueChange: (Int) -> Unit,
+    supportingText: String? = null,
+) {
     OutlinedTextField(
         value = value.toString(),
-        onValueChange = { text -> text.toIntOrNull()?.takeIf { it > 0 }?.let(onValueChange) },
+        onValueChange = { text -> text.toIntOrNull()?.takeIf { it >= 0 }?.let(onValueChange) },
         label = { Text(label) },
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
         modifier = Modifier.fillMaxWidth(),
         singleLine = true,
+        supportingText = if (supportingText != null) {{ Text(supportingText, style = MaterialTheme.typography.labelSmall) }} else null,
     )
 }
