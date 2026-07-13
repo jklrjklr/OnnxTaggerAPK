@@ -1,3 +1,0 @@
--keep class ai.onnxruntime.** { *; }
--keep class com.example.onnxtagger.data.** { *; }
--keepattributes *Annotation*
